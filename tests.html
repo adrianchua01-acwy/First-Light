@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>First Light tests</title>
+<body style="font:15px/1.5 system-ui;margin:24px"><h1>First Light tests</h1><pre id="out"></pre>
+<script src="js/astro.js"></script><script src="js/catalog.js"></script><script src="js/planner.js"></script>
+<script>
+let pass = 0, fail = 0; const log = [];
+const ok = (n, c, d = '') => { c ? pass++ : fail++; log.push((c ? 'pass  ' : 'FAIL  ') + n + (d ? '   ' + d : '')); };
+const near = (n, got, want, tol) => ok(n, Math.abs(got - want) <= tol, `got ${got.toFixed(4)}, expected ${want} ±${tol}`);
+const U = Date.UTC;
+// Worked examples from Meeus
+near('sidereal time, Meeus 12.a', Astro.gmst(U(1987, 3, 10)), 197.693195, .001);
+const s = Astro.sun(U(1992, 9, 13)); near('Sun RA, Meeus 25.a', s.ra, 198.381, .02); near('Sun dec, Meeus 25.a', s.dec, -7.785, .02);
+const m = Astro.moon(U(1992, 3, 12)); near('Moon longitude, Meeus 47.a', m.lon, 133.163, .15); near('Moon latitude', m.lat, -3.229, .1); near('Moon distance km', m.dist, 368409.7, 600);
+const v = Astro.altAz(347.3193, -6.7199, 38.9214, -77.0656, U(1987, 3, 10, 19, 21)); near('altitude, Meeus 13.b', v.alt, 15.125, .02); near('azimuth, Meeus 13.b', v.az, 248.034, .02);
+// Eclipses pin the Moon's phase
+ok('new Moon at eclipse, 2026-08-12', Astro.moonPhase(U(2026, 7, 12, 17, 37)).frac < .001);
+ok('full Moon at eclipse, 2026-03-03', Astro.moonPhase(U(2026, 2, 3, 11, 38)).frac > .999);
+const th = Astro.precess(41.0540613, 49.227750, U(2028, 10, 13)); near('precession RA, Meeus 21.b', th.ra, 41.547214, .01); near('precession dec', th.dec, 49.348483, .01);
+const gc = Astro.galToEq(0, 0); near('galactic centre RA', gc.ra, 266.405, .02); near('galactic centre dec', gc.dec, -28.936, .02);
+const gx = Astro.galToEq(90, 0); near('galactic l=90 RA', gx.ra, 318.004, .05); near('galactic l=90 dec', gx.dec, 48.33, .05);
+// Time zones, including half hours, daylight saving and the date line
+ok('Delhi noon', Zone.toUtc('2026-06-01', 12, 0, 'Asia/Kolkata') === U(2026, 5, 1, 6, 30));
+ok('New York winter noon', Zone.toUtc('2026-01-15', 12, 0, 'America/New_York') === U(2026, 0, 15, 17));
+ok('New York summer noon', Zone.toUtc('2026-07-15', 12, 0, 'America/New_York') === U(2026, 6, 15, 16));
+ok('longitude fallback zone', Zone.fromLongitude(105) === 'Etc/GMT-7' && Zone.valid('Etc/GMT-7'));
+// Planner behaviour around the world
+const L = n => PLACES.find(p => p.name === n), T = id => TARGETS.find(t => t.id === id), C = (n, b = 3) => ({ loc: L(n), bortle: b, weather: null });
+const E = (id, d, n, b) => Planner.evaluate(T(id), d, C(n, b));
+ok('daylight saving night is 25 h', Planner.night('2026-10-31', L('New York')).t1 - Planner.night('2026-10-31', L('New York')).t0 === 25 * 36e5);
+ok('core not above horizon in Tromsø', E('mw-core', '2026-07-15', 'Tromsø').maxAlt < 0 && E('mw-core', '2026-07-15', 'Tromsø').score === 0);
+ok('midnight Sun in Tromsø in June', Planner.night('2026-06-20', L('Tromsø')).lowestSun > 0);
+ok('no full darkness in London in June', Planner.night('2026-06-20', L('London')).darkStart === null);
+ok('core excellent in Atacama at new Moon, July', E('mw-core', '2026-07-13', 'Atacama Desert', 1).score >= 90);
+ok('full Moon ruins the core', E('mw-core', '2026-06-29', 'Atacama Desert', 1).score < 28, String(E('mw-core', '2026-06-29', 'Atacama Desert', 1).score));
+ok('city ruins the Milky Way', E('mw-core', '2026-07-13', 'Atacama Desert', 8).score < 20);
+ok('city spares the Ring Nebula', E('m57', '2026-07-13', 'New York', 8).score >= 50);
+ok('Orion good in January, London', E('m42', '2026-01-18', 'London').score >= 60, String(E('m42', '2026-01-18', 'London').score));
+ok('Orion impossible in June, London', E('m42', '2026-06-15', 'London').score === 0);
+ok('Carina invisible from London', /never rises/.test(Planner.blocker(E('ngc3372', '2026-03-18', 'London'), C('London'))));
+ok('Carina excellent from Sydney in March', E('ngc3372', '2026-03-18', 'Sydney').score >= 70);
+const w = { t0: U(2026, 6, 13), cloud: Array(72).fill(100) };
+ok('overcast gives zero', Planner.evaluate(T('mw-core'), '2026-07-13', { ...C('Atacama Desert', 1), weather: w }).score === 0);
+ok('daytime scores zero', Planner.scoreAt(T('mw-core'), U(2026, 6, 13, 16), C('Atacama Desert', 1)).score === 0);
+let sweep = 0;
+for (const p of PLACES) {
+  ok('zone valid: ' + p.name, Zone.valid(p.tz));
+  for (const d of ['2026-03-20', '2026-06-21', '2026-11-25']) for (const t of TARGETS) {
+    const r = Planner.evaluate(t, d, { loc: p, bortle: 4, weather: null }); sweep++;
+    if (!(r.score >= 0 && r.score <= 100)) ok('score in range ' + p.name + t.id, false);
+    if (r.window && (r.window.peak.sun > -10 || r.window.peak.alt < t.minAlt)) ok('window is dark and high ' + p.name + ' ' + t.id, false);
+  }
+}
+ok('swept ' + sweep + ' place/date/target combinations', true);
+document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + log.join('\n');
+</script>

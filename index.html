@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First Light: when to photograph the night sky</title>
+<meta name="description" content="Plan when to photograph nebulae and the Milky Way from anywhere in the world.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1116'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%234fd1bd' stroke-width='2'/%3E%3Cpath d='M16 1v6M16 25v6M1 16h6M25 16h6' stroke='%234fd1bd' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><circle cx="16" cy="16" r="8"/><path d="M16 1v6M16 25v6M1 16h6M25 16h6"/><circle cx="16" cy="16" r="2.5" class="pt"/></svg>
+    <span>First Light</span>
+  </div>
+  <button class="place" id="placeBtn" type="button"></button>
+  <div class="seg themes" role="group" aria-label="Screen colours">
+    <button type="button" data-theme-set="light">Light</button>
+    <button type="button" data-theme-set="dark">Dark</button>
+    <button type="button" data-theme-set="red" title="Protects your night vision outdoors">Red</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button role="tab" id="tab-tonight" aria-controls="tonight" data-tab="tonight">Tonight</button>
+  <button role="tab" id="tab-ahead" aria-controls="ahead" data-tab="ahead">Plan ahead</button>
+  <button role="tab" id="tab-camera" aria-controls="camera" data-tab="camera">Camera setup</button>
+</nav>
+
+<main>
+  <section id="tonight" role="tabpanel" aria-labelledby="tab-tonight">
+    <p class="nowbar" id="nowbar" aria-live="polite"></p>
+    <div class="when" role="group" aria-label="Choose a night and time">
+      <button type="button" class="icon" id="prevNight" aria-label="Previous night">‹</button>
+      <label><span class="sr">Night of</span><input type="date" id="dateIn"></label>
+      <button type="button" class="icon" id="nextNight" aria-label="Next night">›</button>
+      <label class="timelabel"><span>Time</span><input type="time" id="timeIn"></label>
+      <button type="button" class="quiet" id="goNow">Now</button>
+      <button type="button" class="quiet" id="goBest">Best time</button>
+      <span class="sundata" id="sundata"></span>
+    </div>
+    <div class="cols">
+      <div class="primary">
+        <div class="verdict" id="verdict"></div>
+        <figure class="skybox">
+          <canvas id="sky" tabindex="0" role="img" aria-label="Simulated sky"></canvas>
+          <figcaption id="skycap"></figcaption>
+        </figure>
+        <div class="ribbonhead"><h2>How the night unfolds</h2><p>Drag along the chart to move through the night. Height is in degrees above the horizon.</p></div>
+        <div class="ribbonwrap"><div id="ribbon" tabindex="0" role="slider" aria-label="Time of night"></div><div class="tip" id="tip" hidden></div></div>
+        <details class="astable"><summary>Show as a table</summary><div id="ribbonTable" class="scroll"></div></details>
+        <h2 id="factorHead">Conditions</h2>
+        <ul class="factors" id="factors"></ul>
+      </div>
+      <aside class="side" aria-label="Targets">
+        <div class="sidehead">
+          <h2>What to shoot</h2>
+          <div class="seg" role="group" aria-label="Rank targets by"><button type="button" data-mode="night">This night</button><button type="button" data-mode="time" id="modeTime">At this time</button></div>
+          <div class="chips" role="group" aria-label="Kind of target"><button type="button" data-kind="all">All</button><button type="button" data-kind="mw">Milky Way</button><button type="button" data-kind="neb">Nebulae</button></div>
+        </div>
+        <div id="list"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="ahead" role="tabpanel" aria-labelledby="tab-ahead" hidden>
+    <div class="aheadhead"><label class="field"><span>Target</span><select id="aheadTarget"></select></label></div>
+    <div class="bestnights" id="bestnights"></div>
+    <h2>The next five weeks</h2>
+    <p class="note" id="calnote"></p>
+    <div class="cal" id="cal"></div>
+    <h2 id="seasonHead">Best months</h2>
+    <p class="note">Average hours per night that it is well placed in a dark sky, before Moon and weather.</p>
+    <div class="season" id="season"></div>
+    <h2>Saved plans</h2>
+    <div id="plans"></div>
+  </section>
+
+  <section id="camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
+    <div class="camgrid">
+      <form class="camform" id="camform" onsubmit="return false">
+        <label class="field"><span>Target</span><select id="camTarget"></select></label>
+        <label class="field"><span>Equipment</span><select id="camGear"></select></label>
+        <div id="camLens">
+          <label class="field"><span>Sensor size</span><select id="camSensor"></select></label>
+          <label class="field"><span>Focal length (mm)</span><input type="number" id="camF" min="4" max="4000" inputmode="numeric"></label>
+          <label class="field"><span>Lens aperture (f-number)</span><input type="number" id="camN" min="0.9" max="22" step="0.1" inputmode="decimal"></label>
+        </div>
+      </form>
+      <div>
+        <h2 id="camHead">Start with these settings</h2>
+        <dl class="settings" id="settings"></dl>
+        <div class="frame"><div id="frameBox"></div><p id="frameText"></p></div>
+      </div>
+    </div>
+    <h2>In the field</h2>
+    <ol class="steps" id="steps"></ol>
+  </section>
+</main>
+
+<footer>
+  <p id="wxnote"></p>
+  <p>Scores are estimates from Sun, Moon and target positions, your sky brightness and the cloud forecast. The sky picture is a simulation; the camera sees more colour than your eyes will.</p>
+</footer>
+
+<dialog id="setup" aria-labelledby="setupTitle">
+  <form method="dialog" id="setupForm">
+    <h2 id="setupTitle">Where are you shooting?</h2>
+    <p class="note" id="setupIntro"></p>
+    <div class="searchrow"><label class="field grow"><span>Town, city or dark site</span><input type="search" id="q" autocomplete="off" placeholder="Try Nairobi or Death Valley"></label><button type="button" class="quiet" id="geo">Use my location</button></div>
+    <div id="results" class="results" aria-live="polite"></div>
+    <details><summary>Enter coordinates</summary><div class="coords"><label class="field"><span>Latitude</span><input id="latIn" type="number" step="any" min="-90" max="90"></label><label class="field"><span>Longitude</span><input id="lonIn" type="number" step="any" min="-180" max="180"></label><button type="button" class="quiet" id="useCoords">Use these</button></div></details>
+    <p class="picked" id="picked"></p>
+    <fieldset><legend>How dark is the sky there?</legend><div class="radios" id="darkRadios"></div></fieldset>
+    <fieldset><legend>What will you shoot with?</legend><div class="radios" id="gearRadios"></div></fieldset>
+    <div class="actions"><button value="ok" class="main">Save and show my sky</button></div>
+    <p class="note small">Place search and cloud forecasts come from Open-Meteo. Your chosen place, rounded to about 1 km, is sent to it. Everything else stays in this browser.</p>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="js/astro.js"></script>
+<script src="js/catalog.js"></script>
+<script src="js/planner.js"></script>
+<script src="js/sky.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

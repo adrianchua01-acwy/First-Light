@@ -1,0 +1,13 @@
+# Secrets: never commit these
+.env
+.env.*
+!.env.example
+
+# Vercel and editor files
+.vercel
+.vscode/
+node_modules/
+
+# Operating system files
+.DS_Store
+Thumbs.db

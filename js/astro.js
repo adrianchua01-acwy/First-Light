@@ -49,6 +49,22 @@ const Astro = (() => {
     return { frac: (1 - cos(elong)) / 2, phase: norm(m.lon - s.lon) };
   }
 
+  /* Apparent width of the Moon in arcminutes. */
+  const moonSize = ms => 2 * Math.asin(1737.4 / moon(ms).dist) / R * 60;
+
+  /* The next time the Moon reaches a phase angle (0 new, 90 first quarter, 180 full, 270 last quarter). */
+  function nextPhase(angle, from) {
+    const gap = ms => ((moonPhase(ms).phase - angle + 540) % 360) - 180; // signed, zero at the phase
+    let a = from;
+    for (; a < from + 31 * 864e5; a += 432e5) {
+      const g0 = gap(a), g1 = gap(a + 432e5);
+      if (g0 <= 0 && g1 > 0 && g1 - g0 < 90) break;
+    }
+    let b = a + 432e5;
+    for (let i = 0; i < 24; i++) { const m = (a + b) / 2; if (gap(m) <= 0) a = m; else b = m; }
+    return a;
+  }
+
   /* Altitude, and azimuth measured from north through east. */
   function altAz(ra, dec, lat, lon, ms) {
     const H = gmst(ms) + lon - ra;
@@ -87,7 +103,7 @@ const Astro = (() => {
     return { ra, dec };
   }
 
-  return { R, sin, cos, tan, norm, clamp, gmst, sun, moon, moonPhase, altAz, sunAlt, moonAltAz, precess, separation, galToEq };
+  return { R, sin, cos, tan, norm, clamp, gmst, sun, moon, moonPhase, moonSize, nextPhase, altAz, sunAlt, moonAltAz, precess, separation, galToEq };
 })();
 
 /* Wall-clock times in any IANA time zone. */

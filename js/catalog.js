@@ -10,6 +10,8 @@ const TARGETS = [
   ['mw-cygnus', 'Cygnus Milky Way', 'Cygnus', 'Milky Way', 20.51, 40.7, 2400, 0, 'faint', .97, [14, 35], 15, 'The summer star clouds, split by a dark rift of dust. Best for northern observers who cannot see the core.'],
   ['mw-winter', 'Winter Milky Way', 'Auriga and Orion', 'Milky Way', 5.76, 28.9, 2400, 1, 'faint', .97, [14, 24], 15, 'The quiet outer arm. Fainter than the core, but it frames Orion, the Pleiades and Capella in one wide shot.'],
   ['mw-carina', 'Southern Milky Way', 'Carina and Crux', 'Milky Way', 11.8, -61.5, 2100, 0, 'faint', .97, [14, 35], 12, 'A rich stretch through the Southern Cross, with the Carina Nebula glowing pink inside it.'],
+  // The Moon moves, so its position here is a placeholder: use Planner.position().
+  ['moon', 'The Moon', 'Moves through the zodiac', 'Moon', 0, 0, 31, 1, 'bright', 0, [400, 1600], 5, 'Bright enough for any city and any beginner. Craters and mountains stand out most along the line between light and shadow.'],
   ['m42', 'Orion Nebula', 'M42, Orion', 'Emission', 5.588, -5.39, 65, 1, 'bright', .55, [135, 400], 18, 'The brightest nebula for most of the world, and visible to the eye as a fuzzy star. Start your nebula journey here.'],
   ['ngc3372', 'Carina Nebula', 'NGC 3372, Carina', 'Emission', 10.752, -59.87, 120, 1, 'bright', .55, [85, 300], 18, 'Larger than Orion’s nebula on the sky and even brighter. The southern sky’s easiest showpiece.'],
   ['m45', 'Pleiades', 'M45, Taurus', 'Reflection', 3.79, 24.11, 110, 1, 'medium', .85, [135, 400], 20, 'Blue stars wrapped in dusty blue haze. The stars come easily, and the haze rewards longer exposures.'],

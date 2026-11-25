@@ -32,11 +32,17 @@
   };
   const rank = r => r.score * (r.target.gear <= st.gear ? 1 : .2);
   const top = rs => rs.reduce((a, b) => rank(b) > rank(a) ? b : a);
+  const DEEP = TARGETS.filter(t => !Planner.isMoon(t)), MOON = byId('moon');
+  /* Good dark skies are rarer than the Moon, so suggest the Moon only when deep-sky targets are not good. */
+  function suggest(deep, moon) {
+    if (deep.score >= 50 && deep.target.gear <= st.gear) return deep.target;
+    if (moon.score >= 50 && MOON.gear <= st.gear) return MOON;
+    return deep.score >= 28 && deep.target.gear <= st.gear ? deep.target : null;
+  }
   function bestTarget() {
-    const r = top(TARGETS.map(t => result(t, st.date)));
     // On a hopeless night, show the target that would win under a clear sky, so the reason given is useful.
-    return r.score >= 28 && r.target.gear <= st.gear ? r.target
-      : top(TARGETS.map(t => Planner.evaluate(t, st.date, { ...ctx(), weather: null }))).target;
+    return suggest(top(DEEP.map(t => result(t, st.date))), result(MOON, st.date))
+      || top(DEEP.map(t => Planner.evaluate(t, st.date, { ...ctx(), weather: null }))).target;
   }
 
   // ---------- words ----------
@@ -45,9 +51,17 @@
   const fists = alt => { const n = Math.round(alt / 5) / 2; return n >= 8 ? 'almost straight up' : `${n === Math.floor(n) ? n : Math.floor(n) + '½'} fist${n === 1 ? '' : 's'} above the horizon`; };
   const span = ms => { const m = Math.max(1, Math.round(ms / 60000)), h = Math.floor(m / 60); return h ? `${h} h ${m % 60} min` : `${m} min`; };
   const pips = g => `<span class="pips" aria-hidden="true">${[1, 2, 3, 4].map(i => `<i class="${i <= g.k ? 'on' : ''}"></i>`).join('')}</span>`;
-  const kindWord = t => t.type === 'Milky Way' ? 'Milky Way' : t.type === 'Supernova remnant' ? t.type : `${t.type} nebula`;
+  const mid = t => esc(t.name.replace(/^The /, 'the ')); // a name inside a sentence
+  const phaseName = p => p < 8 || p > 352 ? 'new Moon' : p < 82 ? 'waxing crescent' : p <= 98 ? 'first quarter' : p < 172 ? 'waxing gibbous' : p <= 188 ? 'full Moon' : p < 262 ? 'waning gibbous' : p <= 278 ? 'last quarter' : 'waning crescent';
+  const phaseTip = p => {
+    const e = Math.min(p, 360 - p);
+    return e < 8 ? 'There is nothing to see.' : e < 50 ? 'Look for a thin bright edge, and a faint glow on the dark side lit by Earth.' : e < 130 ? 'Long shadows along the middle make this the best time for craters.' : e < 165 ? 'Good crater shadows near one edge, and plenty of detail elsewhere.' : 'The light is flat, so craters fade, but the dark seas and bright rays show well.';
+  };
+  const FILTERS = { all: () => true, mw: t => t.type === 'Milky Way', moon: Planner.isMoon, neb: t => t.type !== 'Milky Way' && !Planner.isMoon(t) };
+  const kindWord = t => Planner.isMoon(t) ? 'Every clear night but new Moon' : t.type === 'Milky Way' ? 'Milky Way' : t.type === 'Supernova remnant' ? t.type : `${t.type} nebula`;
   const SYM = { // star-atlas style symbols
     'Milky Way': '<path d="M2 15C6 8 14 12 18 5M4 18c4-5 10-3 14-8"/>', Emission: '<rect x="4" y="4" width="12" height="12"/>', Reflection: '<rect x="4" y="4" width="12" height="12" stroke-dasharray="2.5 2"/>',
+    Moon: '<path d="M13 3a7.5 7.5 0 1 0 4 11.500A6.500 6.500 0 0 1 13 3z"/>',
     Dark: '<rect x="4" y="4" width="12" height="12" style="fill:var(--ink2)"/>', Planetary: '<circle cx="10" cy="10" r="5"/><path d="M10 1v4M10 15v4M1 10h4M15 10h4"/>', 'Supernova remnant': '<path d="M10 2l2 5 5-2-2 5 4 3-5 1 0 5-4-3-4 3v-5l-5-1 4-3-2-5 5 2z"/>',
   };
   const sym = t => `<svg class="sym" viewBox="0 0 20 20" aria-hidden="true">${SYM[t.type]}</svg>`;
@@ -65,15 +79,18 @@
 
   function renderNow() {
     const now = Date.now(), sky = Planner.skyAt(now, st.loc), n = Planner.night(Planner.nightOf(now, st.loc), st.loc);
+    const moonNow = Planner.scoreAt(MOON, now, ctx());
     let msg;
     if (sky.sun > -12) {
       const word = sky.sun > -.8 ? 'it is daylight' : 'it is twilight';
       msg = n.lowestSun > -12 ? `${word}, and the sky will not get dark enough tonight at this latitude.`
         : n.darkStart && n.darkStart > now ? `${word}. Full darkness starts at ${hm(n.darkStart)}, in ${span(n.darkStart - now)}.`
         : n.darkStart ? `${word}.` : `${word}. The sky gets fairly dark tonight, but never fully.`;
+      if (moonNow.score >= 20) msg += ` <button type="button" data-pick="moon">The Moon</button> is up in the ${dir(moonNow.az)}, so you can photograph it now.`;
     } else {
       const c = Planner.cloudAt(st.weather, now);
-      const up = TARGETS.filter(t => t.gear <= st.gear).map(t => ({ t, s: Planner.scoreAt(t, now, ctx()) })).sort((a, b) => b.s.score - a.s.score)[0];
+      let up = DEEP.filter(t => t.gear <= st.gear).map(t => ({ t, s: Planner.scoreAt(t, now, ctx()) })).sort((a, b) => b.s.score - a.s.score)[0];
+      if (MOON.gear <= st.gear && moonNow.score >= 20 && up.s.score < 50 && moonNow.score > up.s.score) up = { t: MOON, s: moonNow };
       msg = up && up.s.score >= 20 ? `it is dark. Best target this minute: <button type="button" data-pick="${up.t.id}">${esc(up.t.name)}</button>, in the ${dir(up.s.az)}.`
         : c > 70 ? `it is dark but ${Math.round(c)}% cloudy.` : 'it is dark, but nothing suits your equipment and sky this minute.';
     }
@@ -94,6 +111,10 @@
     return null;
   }
 
+  function moonLine(m, at) {
+    const s = Astro.moonSize(at), p = phaseName(m.phase);
+    return `<b>${p[0].toUpperCase() + p.slice(1)}, ${Math.round(m.frac * 100)}% lit.</b> ${phaseTip(m.phase)}${s > 33 ? ' It is close to Earth, so it looks larger than usual.' : ''}`;
+  }
   function renderVerdict() {
     const t = byId(st.target), r = result(t, st.date), when = nightName(st.date), w = r.window;
     let h, lead, buttons = '';
@@ -112,7 +133,7 @@
     const fr = framing(t);
     const warn = t.gear > st.gear ? `Best with ${GEAR_NEED[t.gear]}. You chose: ${GEAR[st.gear].toLowerCase()}.`
       : w && st.gear > 0 && fr.frac < .05 ? `It will look very small at ${st.cam.f} mm. Aim for a ${fr.sugg} lens if you can.` : '';
-    $('verdict').innerHTML = `<div class="gradeline"><span class="grade">${pips(r.grade)}${r.grade.word}</span><span>${r.score} out of 100${r.hasForecast ? '' : ', cloud not included'}</span></div><h1>${h}</h1><p class="lead">${lead}</p><p class="about">${esc(t.about)}</p>${warn ? `<p class="gearwarn">${warn}</p>` : ''}<div class="row">${buttons}<button type="button" class="quiet" data-act="camera">Camera settings</button></div>`;
+    $('verdict').innerHTML = `<div class="gradeline"><span class="grade">${pips(r.grade)}${r.grade.word}</span><span>${r.score} out of 100${r.hasForecast ? '' : ', cloud not included'}</span></div><h1>${h}</h1><p class="lead">${lead}</p><p class="about">${esc(t.about)}${Planner.isMoon(t) ? ` ${moonLine(r.night.moon, w ? w.peak.t : st.t)}` : ''}</p>${warn ? `<p class="gearwarn">${warn}</p>` : ''}<div class="row">${buttons}<button type="button" class="quiet" data-act="camera">Camera settings</button></div>`;
   }
 
   let hits = [], axis = null;
@@ -137,7 +158,8 @@
   }
   function renderTable() {
     const r = result(byId(st.target), st.date);
-    $('ribbonTable').innerHTML = `<table><thead><tr><th>Time</th><th>Height</th><th>Direction</th><th>Moon height</th><th>Cloud</th><th>Score</th></tr></thead><tbody>${r.s.filter((_, i) => i % 6 === 0).map(s => `<tr><td>${hm(s.t)}</td><td>${s.alt > 0 ? Math.round(s.alt) + '°' : 'Below horizon'}</td><td>${dir(s.az)}</td><td>${s.moonAlt > 0 ? Math.round(s.moonAlt) + '°' : 'Down'}</td><td>${s.cloud == null ? 'No forecast' : Math.round(s.cloud) + '%'}</td><td>${Math.round(s.score)}</td></tr>`).join('')}</tbody></table>`;
+    const own = Planner.isMoon(r.target);
+    $('ribbonTable').innerHTML = `<table><thead><tr><th>Time</th><th>Height</th><th>Direction</th>${own ? '' : '<th>Moon height</th>'}<th>Cloud</th><th>Score</th></tr></thead><tbody>${r.s.filter((_, i) => i % 6 === 0).map(s => `<tr><td>${hm(s.t)}</td><td>${s.alt > 0 ? Math.round(s.alt) + '°' : 'Below horizon'}</td><td>${dir(s.az)}</td>${own ? '' : `<td>${s.moonAlt > 0 ? Math.round(s.moonAlt) + '°' : 'Down'}</td>`}<td>${s.cloud == null ? 'No forecast' : Math.round(s.cloud) + '%'}</td><td>${Math.round(s.score)}</td></tr>`).join('')}</tbody></table>`;
   }
 
   function renderFactors() {
@@ -149,6 +171,13 @@
     const light = { faint: 'This target is faint, so dark skies matter most.', medium: 'Moderately affected by sky glow.', bright: 'Bright enough to survive some sky glow.' }[t.light];
     const rows = [['Darkness', lvl(f.dark), dark], ['Height', lvl(f.alt), high], ['Moonlight', lvl(f.moon), moon], ['Sky glow', lvl(f.light), `${siteName()[0].toUpperCase() + siteName().slice(1)}. ${light}`],
       ['Cloud', s.cloud == null ? ['n', 'Unknown'] : lvl(f.cloud), s.cloud == null ? (st.wx === 'failed' ? 'Forecast could not be loaded. Check your local weather.' : st.wx === 'loading' ? 'Loading the forecast.' : 'No forecast for this date yet. Check again closer to the night.') : `${Math.round(s.cloud)}% cloud forecast.`]];
+    if (Planner.isMoon(t)) {
+      const ph = Astro.moonPhase(st.t), n = phaseName(ph.phase);
+      rows[0] = ['Darkness', lvl(f.dark), s.sun > 0 ? 'Daylight. The Moon shows, but pale against a blue sky.' : s.sun > -6 ? 'Twilight. A lovely time for the Moon with a landscape.' : 'Dark enough for full contrast.'];
+      rows[1][2] = s.alt <= 0 ? 'Below the horizon.' : s.alt < 15 ? `${Math.round(s.alt)}° up. Low and shimmering, but good with a building or hill in front.` : s.alt < 30 ? `${Math.round(s.alt)}° up. Some blur from the air.` : `${Math.round(s.alt)}° up, in steadier air.`;
+      rows[2] = ['Phase', lvl(f.moon), `${n[0].toUpperCase() + n.slice(1)}, ${m}% lit. ${phaseTip(ph.phase)}`];
+      rows[3] = ['Sky glow', ['g', '✓ Good'], 'City lights do not matter for the Moon.'];
+    }
     $('factorHead').textContent = `Conditions at ${hm(st.t)}`;
     $('factors').innerHTML = rows.map(([a, [c, w], d]) => `<li><b>${a}</b><span class="lvl ${c}">${w}</span><span>${esc(d)}</span></li>`).join('');
   }
@@ -157,7 +186,7 @@
     all('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
     all('[data-kind]').forEach(b => b.setAttribute('aria-pressed', b.dataset.kind === st.kind));
     $('modeTime').textContent = `At ${hm(st.t)}`;
-    const rows = TARGETS.filter(t => st.kind === 'all' || (st.kind === 'mw') === (t.type === 'Milky Way')).map(t => {
+    const rows = TARGETS.filter(FILTERS[st.kind]).map(t => {
       if (st.mode === 'night') {
         const r = result(t, st.date);
         return { t, score: r.score, sub: r.window ? `${hm(r.window.start)} to ${hm(r.window.end)}` : kindWord(t) };
@@ -187,19 +216,28 @@
       ? `<h1>Best night: ${Zone.pretty(top[0].night.date, { weekday: 'long', day: 'numeric', month: 'long' })}</h1><p>Score ${top[0].score}, ${hm(top[0].window.start)} to ${hm(top[0].window.end)}.${top.length > 1 ? ` Also good: ${top.slice(1).map(r => `${Zone.pretty(r.night.date)} (${r.score})`).join(' and ')}.` : ''}</p>`
       : `<h1>No good night in the next five weeks</h1><p>${esc(Planner.blocker(rs.reduce((a, b) => b.score > a.score ? b : a), ctx()))}</p>`;
     const fc = rs.filter(r => r.hasForecast).length;
-    $('calnote').textContent = `Scores out of 100. ${fc ? `The first ${fc} nights include the cloud forecast, which gets less reliable after about five days. Later nights count Moon and darkness only.` : 'Cloud is not included.'} Choose a night to see it in detail.`;
+    $('calnote').textContent = `Scores out of 100. ${fc ? `The first ${fc} nights include the cloud forecast, which gets less reliable after about five days. ${Planner.isMoon(t) ? 'Later nights count phase and height only.' : 'Later nights count Moon and darkness only.'}` : 'Cloud is not included.'} Choose a night to see it in detail.`;
     $('cal').innerHTML = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="dow">${d}</div>`).join('') + '<div></div>'.repeat(dow)
       + rs.map((r, i) => {
         const d = r.night.date, w = r.window, first = i === 0 || d.endsWith('-01');
         return `<button type="button" class="day${r.score < 8 ? ' zero' : ''}${best.has(d) ? ' best' : ''}" style="--h:${r.score}%" data-goto="${d}" aria-label="${Zone.pretty(d)}: ${r.grade.word}, score ${r.score}${w ? `, ${hm(w.start)} to ${hm(w.end)}` : ''}, Moon ${Math.round(r.night.moon.frac * 100)}% lit"><span class="d"><span>${Zone.pretty(d, first ? { day: 'numeric', month: 'short' } : { day: 'numeric' })}</span>${Sky.moonGlyph(r.night.moon.phase, 16, st.loc.lat < 0)}</span><span class="n">${r.score < 8 ? '–' : r.score}</span><span class="w">${w ? `${hm(w.start)}–${hm(w.end)}` : ''}${r.hasForecast && r.s[84] && w && w.peak.cloud > 50 ? ' cloudy' : ''}</span></button>`;
       }).join('');
+    if (Planner.isMoon(t)) { renderPhases(); renderPlans(); return; }
+    $('seasonNote').textContent = 'Average hours per night that it is well placed in a dark sky, before Moon and weather.';
     const year = +start.slice(0, 4), wk = Planner.season(t, year, st.loc), months = Array.from({ length: 12 }, () => []);
     wk.forEach(x => months[+x.date.slice(5, 7) - 1].push(x.h));
     const avg = months.map(m => m.reduce((a, b) => a + b, 0) / (m.length || 1)), mx = Math.max(...avg, .1);
-    $('seasonHead').textContent = `Best months for ${t.name} from ${st.loc.name}`;
+    $('seasonHead').textContent = `Best months for ${mid(t)} from ${st.loc.name}`;
     $('season').innerHTML = mx <= .1 ? '<p class="note" style="grid-column:1/-1;text-align:left">It is never well placed in a dark sky from here.</p>'
       : avg.map((h, i) => `<div class="col${i === +start.slice(5, 7) - 1 ? ' cur' : ''}"><div class="bar"><span>${h < .05 ? '0' : h < 9.95 ? h.toFixed(1) : Math.round(h)}</span><i style="height:${(h / mx * 104).toFixed(0)}px"></i></div><div class="m">${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i]}</div></div>`).join('');
     renderPlans();
+  }
+  function renderPhases() {
+    const now = Date.now(), tips = { 0: 'No Moon to shoot. The best nights for the Milky Way and nebulae.', 90: 'High at sunset. Long crater shadows: the best choice for a first Moon photo.', 180: 'Rises near sunset. Flat light, but ideal rising behind a landmark.', 270: 'Rises around midnight. Crater shadows on the other side.' };
+    const list = [[0, 'New Moon'], [90, 'First quarter'], [180, 'Full Moon'], [270, 'Last quarter']].map(([a, n]) => ({ a, n, t: Astro.nextPhase(a, now) })).sort((x, y) => x.t - y.t);
+    $('seasonHead').textContent = 'Next Moon phases';
+    $('seasonNote').textContent = `Times are local to ${st.loc.name}.`;
+    $('season').innerHTML = `<div class="phases">${list.map(x => `<div>${Sky.moonGlyph(x.a || .01, 34, st.loc.lat < 0)}<div><b>${x.n}</b> ${Zone.pretty(Zone.date(x.t, tz()))}, ${hm(x.t)}<small>${tips[x.a]}</small></div></div>`).join('')}</div>`;
   }
   function renderPlans() {
     const ps = store.get('plans') || [];
@@ -211,6 +249,7 @@
   const SHUTTERS = [.5, .6, .8, 1, 1.3, 1.6, 2, 2.5, 3.2, 4, 5, 6, 8, 10, 13, 15, 20, 25];
   const PIXEL = 4.3; // typical pixel size in microns
   function settings(t) {
+    if (Planner.isMoon(t)) return moonSettings();
     const b = st.bortle, g = st.gear, mw = t.type === 'Milky Way', { f, n } = st.cam, rows = [];
     const total = (mw ? 8 : { bright: 30, medium: 90, faint: 180 }[t.light]) * (b <= 3 ? 1 : b <= 5 ? 1.5 : 2.5);
     const frames = s => Math.min(g === 1 ? 300 : 200, Math.max(10, Math.ceil(total * 60 / s / 10) * 10));
@@ -236,12 +275,31 @@
     if (['Emission', 'Planetary', 'Supernova remnant'].includes(t.type) && b >= 5 && g > 0) rows.push(['Filter', 'Dual-band', 'Optional. Passes the glow of this nebula and blocks most city light.']);
     return rows;
   }
+  /* The "Looney 11" rule: at f/11 a full Moon needs about 1/ISO seconds; slimmer phases need more. */
+  function moonSettings() {
+    const g = st.gear, r = result(MOON, st.date), e = Math.min(r.night.moon.phase, 360 - r.night.moon.phase), alt = r.window ? r.window.peak.alt : 45;
+    if (g === 0) return [
+      ['Zoom', 'Longest lens', 'Use the real telephoto lens if your phone has one. Digital zoom only enlarges blur.'],
+      ['Exposure', 'Lower it', 'Tap the Moon, then slide brightness down until you see grey patches instead of a white disc.'],
+      ['Mode', 'Photo or Pro', 'Not Night mode, which overexposes the Moon. In Pro mode try ISO 100 and 1/250 s.'],
+      ['Timer', '3 s', 'Rest the phone on a tripod so the tap does not shake it.'],
+      ['Closer view', 'Use an eyepiece', 'Hold the phone to binoculars or a telescope eyepiece for a much larger Moon.']];
+    const n = g === 3 ? Math.max(4, st.cam.n) : Math.max(8, st.cam.n), more = e > 165 ? 1 : e > 125 ? 2 : e > 70 ? 4 : e > 40 ? 8 : 16, iso = 200;
+    const s = Math.max(1 / 4000, (n / 11) ** 2 / iso * more * (alt < 20 ? 2 : 1));
+    const nice = [4000, 3200, 2500, 2000, 1600, 1250, 1000, 800, 640, 500, 400, 320, 250, 200, 160, 125, 100, 80, 60, 50, 40, 30, 25, 20, 15, 13, 10, 8, 6, 5, 4].reduce((a, b) => Math.abs(Math.log(b * s)) < Math.abs(Math.log(a * s)) ? b : a);
+    return [['Shutter', `1/${nice} s`, `A starting point for ${phaseName(r.night.moon.phase)}. If bright areas turn white, go faster.`],
+      ['Aperture', `f/${n}`, g === 3 ? 'Set by your telescope. Change the f-number on the left to match yours.' : 'Most lenses are sharpest near f/8, and the Moon has light to spare.'],
+      ['ISO', String(iso), 'Low, because the Moon is sunlit rock.'],
+      ['Frames', '30 to 100', 'Or a short video. Stack the sharpest in AutoStakkert or Siril, both free.'],
+      ['File type', 'RAW', 'Keeps detail in the bright areas.'], ['White balance', 'Daylight', 'It shows the Moon’s natural grey.'],
+      ['Focus', 'Manual', 'Magnify the Moon’s edge or a crater on screen and turn until it is crisp.']];
+  }
   /* How large the target appears with the chosen lens, and a better focal length for this sensor. */
   function framing(t) {
     const [, sw, sh] = st.gear === 0 ? ['', 36, 27] : SENSORS[st.cam.sensor], f = st.gear === 0 ? 26 : st.cam.f;
     const fov = d => 2 * Math.atan(d / 2 / f) / Astro.R, crop = 36 / sw;
-    const mm = t.mm.map(x => Math.round(x / crop / 5) * 5 || Math.round(x / crop));
-    return { sw, sh, fw: fov(sw), fh: fov(sh), frac: t.size / 60 / fov(sw), sugg: mm[0] === mm[1] ? `${mm[0]} mm` : `${mm[0]} to ${mm[1]} mm` };
+    const mm = t.mm.map(x => { const v = x / crop, r = v > 400 ? 50 : 5; return Math.round(v / r) * r || Math.round(v); });
+    return { sw, sh, fw: fov(sw), fh: fov(sh), frac: t.size / 60 / fov(sw), enough: f >= mm[0], sugg: mm[0] === mm[1] ? `${mm[0]} mm` : `${mm[0]} to ${mm[1]} mm` };
   }
   function renderCamera() {
     const t = byId(st.target), g = st.gear;
@@ -249,25 +307,34 @@
     if (document.activeElement !== $('camF')) $('camF').value = st.cam.f;
     if (document.activeElement !== $('camN')) $('camN').value = st.cam.n;
     $('camLens').hidden = g === 0;
-    $('camHead').textContent = `Start with these settings for ${t.name}`;
+    $('camHead').textContent = `Start with these settings for ${t.name.replace(/^The /, 'the ')}`;
     $('settings').innerHTML = settings(t).map(([a, v, e]) => `<div><dt>${a}</dt><dd class="v">${v}</dd><dd class="e">${esc(e)}</dd></div>`).join('');
-    const { sw, sh, fw, fh, frac, sugg } = framing(t);
-    const w = 220, h = w * sh / sw, rx = clamp(w * frac / 2, 1.2, 160), ry = Math.min(rx * (t.type === 'Milky Way' ? .45 : .72), 110);
+    const { sw, sh, fw, fh, frac, enough, sugg } = framing(t);
+    const w = 220, h = w * sh / sw, rx = clamp(w * frac / 2, 1.2, 160), ry = Planner.isMoon(t) ? rx : Math.min(rx * (t.type === 'Milky Way' ? .45 : .72), 110);
     const hash = i => Math.abs(Math.sin(i * 127.1 + 3.7) * 43758.5453) % 1;
     const dots = Array.from({ length: 46 }, (_, i) => `<circle cx="${(hash(i) * w).toFixed(1)}" cy="${(hash(i + 99) * h).toFixed(1)}" r="${.4 + (i % 5) * .18}" fill="#fff" opacity=".7"/>`).join('');
-    const fill = { Emission: '#d9566b', Reflection: '#6f9bea', Planetary: '#4fc7b8', 'Supernova remnant': '#c986a0', Dark: '#000', 'Milky Way': '#d8c7ad' }[t.type];
-    $('frameBox').innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="How large the target looks in your frame">${dots}<defs><radialGradient id="nb"><stop offset="0" stop-color="${fill}" stop-opacity=".95"/><stop offset=".6" stop-color="${fill}" stop-opacity=".5"/><stop offset="1" stop-color="${fill}" stop-opacity="0"/></radialGradient></defs><ellipse cx="${w / 2}" cy="${h / 2}" rx="${rx}" ry="${ry}" fill="url(#nb)" transform="rotate(-18 ${w / 2} ${h / 2})"/><ellipse cx="${w / 2}" cy="${h / 2}" rx="${rx}" ry="${ry}" fill="none" stroke="#fff" stroke-opacity=".5" transform="rotate(-18 ${w / 2} ${h / 2})"/></svg>`;
+    const fill = { Emission: '#d9566b', Reflection: '#6f9bea', Planetary: '#4fc7b8', 'Supernova remnant': '#c986a0', Dark: '#000', 'Milky Way': '#d8c7ad', Moon: '#e9e3d2' }[t.type];
+    $('frameBox').innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="How large the target looks in your frame">${dots}<defs><radialGradient id="nb"><stop offset="0" stop-color="${fill}" stop-opacity=".95"/><stop offset=".6" stop-color="${fill}" stop-opacity="${Planner.isMoon(t) ? .95 : .5}"/><stop offset="1" stop-color="${fill}" stop-opacity="${Planner.isMoon(t) ? .9 : 0}"/></radialGradient></defs><ellipse cx="${w / 2}" cy="${h / 2}" rx="${rx}" ry="${ry}" fill="url(#nb)" transform="rotate(-18 ${w / 2} ${h / 2})"/><ellipse cx="${w / 2}" cy="${h / 2}" rx="${rx}" ry="${ry}" fill="none" stroke="#fff" stroke-opacity=".5" transform="rotate(-18 ${w / 2} ${h / 2})"/></svg>`;
     const pct = Math.round(frac * 100), deg = x => x < 2 ? x.toFixed(1) : Math.round(x);
     $('frameText').innerHTML = `Your view is ${deg(fw)}° by ${deg(fh)}°. ${esc(t.name)} would fill ${pct < 1 ? 'less than 1' : pct > 100 ? 'more than 100' : 'about ' + pct}% of the width. `
-      + (g === 0 && t.type !== 'Milky Way' ? 'Too small for a phone. Try the Milky Way instead.' : frac > 1.05 ? `Too big to fit whole. Use ${sugg}, or shoot a panorama.` : frac < .07 ? `That is tiny. Aim for ${sugg}.` : frac < .18 ? `A wide view with sky around it. For a closer look, use ${sugg}.` : 'That is a good fit.');
+      + (g === 0 && Planner.isMoon(t) ? 'Small on a phone’s main lens. Use the longest zoom you have.' : g === 0 && t.type !== 'Milky Way' ? 'Too small for a phone. Try the Milky Way instead.' : frac > 1.05 ? `Too big to fit whole. Use ${sugg}, or shoot a panorama.` : frac < .07 ? `That is tiny. Aim for ${sugg}.` : frac < .18 && enough ? 'That works. A longer lens would show more detail.' : frac < .18 ? `A wide view with sky around it. For a closer look, use ${sugg}.` : 'That is a good fit.');
     const r = result(t, st.date), wn = r.window;
-    $('steps').innerHTML = [
+    const onMoon = Planner.isMoon(t);
+    $('steps').innerHTML = (onMoon ? [
+      `<b>Choose your moment.</b> ${wn ? `Best ${nightName(st.date)} from ${hm(wn.start)} to ${hm(wn.end)}. Highest quality near ${hm(wn.peak.t)}, facing ${dir(wn.peak.az)}, ${fists(wn.peak.alt)}.` : 'See Plan ahead for the next good night.'}`,
+      '<b>Use the longest lens you have</b> on a steady tripod. Turn off image stabilisation.',
+      '<b>Let a telescope or lens cool outdoors</b> for 20 to 30 minutes so the view stops wobbling.',
+      '<b>Focus by hand</b> on a crater or the edge, then do not touch it again.',
+      '<b>Expose for the bright side.</b> Check that no part is pure white. Dark is easier to fix later.',
+      '<b>Take many frames</b> with a timer or remote, and keep the sharpest.',
+      '<b>Try a landscape.</b> Shoot moonrise or moonset in twilight with a building or hill far away, so the Moon looks large beside it.',
+      '<b>No Red screen needed.</b> The Moon is bright, so your eyes do not have to adapt.', '<b>In daylight, stay well away from the Sun.</b> Never look at it, or aim a lens or telescope at it, without a proper solar filter.'] : [
       `<b>Arrive early.</b> ${wn ? `Be set up by ${hm(wn.start - 45 * 60000)} so your eyes and camera can settle before ${hm(wn.start)} ${nightName(st.date)}.` : 'Be set up 45 minutes before your window starts.'}`,
       `<b>Point.</b> ${wn ? `Face ${dir(wn.peak.az)} at ${hm(wn.peak.t)}, ${fists(wn.peak.alt)}. ` : ''}Check the sky window on the Tonight tab.`,
       g >= 2 ? `<b>Polar align</b> your mount on ${st.loc.lat >= 0 ? 'Polaris, due north' : 'the south celestial pole, due south'}, about ${Math.round(Math.abs(st.loc.lat))}° up.` : '<b>Steady the tripod.</b> Keep it low, hang a bag from it, and turn off image stabilisation.',
       '<b>Focus on a bright star</b>, then do not touch the focus ring again.', '<b>Take one test shot.</b> Zoom in: round stars mean focus and shutter are right. Adjust one thing at a time.',
       '<b>Shoot the full set</b> with a timer or remote.', g === 0 ? '<b>Keep warm and charged.</b> Cold drains a phone quickly.' : '<b>Finish with 20 dark frames:</b> same settings, lens cap on. Stacking software uses them to remove noise.',
-      '<b>Use the Red screen</b> outdoors so your eyes stay adapted to the dark.'].map(x => `<li>${x}</li>`).join('');
+      '<b>Use the Red screen</b> outdoors so your eyes stay adapted to the dark.']).map(x => `<li>${x}</li>`).join('');
   }
 
   // ---------- actions ----------
@@ -289,7 +356,7 @@
 
   function planOf() {
     const t = byId(st.target), r = result(t, st.date), w = r.window;
-    return { title: `Photograph ${t.name}`, start: w.start, end: w.end, where: `${st.loc.name} (${st.loc.lat.toFixed(2)}, ${st.loc.lon.toFixed(2)})`,
+    return { title: `Photograph ${t.name.replace(/^The /, 'the ')}`, start: w.start, end: w.end, where: `${st.loc.name} (${st.loc.lat.toFixed(2)}, ${st.loc.lon.toFixed(2)})`,
       detail: `${Zone.pretty(st.date)}, ${hm(w.start)} to ${hm(w.end)} from ${st.loc.name}. Best at ${hm(w.peak.t)}: face ${dir(w.peak.az)}, ${fists(w.peak.alt)}. Score ${r.score}.` };
   }
   function ics(p) {
@@ -410,7 +477,7 @@
   function hover(e) {
     const t = axis.toTime(px(e)), s = Planner.scoreAt(byId(st.target), t, ctx());
     tip.hidden = false;
-    tip.innerHTML = `<b>${hm(t)}: score ${Math.round(s.score)}</b>${s.alt > 0 ? `${Math.round(s.alt)}° up, ${dir(s.az)}` : 'Target below horizon'}<br>${s.moonAlt > 0 ? `Moon ${Math.round(s.moonAlt)}° up` : 'Moon down'}${s.cloud == null ? '' : `<br>${Math.round(s.cloud)}% cloud`}`;
+    tip.innerHTML = `<b>${hm(t)}: score ${Math.round(s.score)}</b>${s.alt > 0 ? `${Math.round(s.alt)}° up, ${dir(s.az)}` : 'Target below horizon'}${st.target === 'moon' ? '' : s.moonAlt > 0 ? `<br>Moon ${Math.round(s.moonAlt)}° up` : '<br>Moon down'}${s.cloud == null ? '' : `<br>${Math.round(s.cloud)}% cloud`}`;
     const x = axis.x(t), w = tip.offsetWidth;
     tip.style.left = (x + 14 + w > rb.clientWidth ? x - 14 - w : x + 14) + 'px';
     const l = rb.querySelector('.hoverline'); if (l) { l.setAttribute('x1', x); l.setAttribute('x2', x); }

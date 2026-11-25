@@ -108,7 +108,7 @@ const Sky = (() => {
       c.globalAlpha = 1;
     }
 
-    const tj = Astro.precess(o.target.ra, o.target.dec, o.t), tq = eq(tj.ra, tj.dec);
+    const tj = Planner.position(o.target, o.t), tq = eq(tj.ra, tj.dec);
     // Constellations and stars (ghosted by day so you can still find your way)
     const vis = Math.max(.22, dark);
     const cloudDim = o.cloud == null ? 1 : 1 - .6 * o.cloud / 100;
@@ -144,13 +144,13 @@ const Sky = (() => {
       mg.addColorStop(0, `rgba(255,240,205,${.5 * moonP.frac * Math.max(.2, dark)})`); mg.addColorStop(1, 'rgba(255,240,205,0)');
       c.fillStyle = mg; c.fillRect(mq[0] - 70, mq[1] - 70, 140, 140);
       c.fillStyle = `rgba(255,243,214,${.25 + .75 * Math.max(.4, dark)})`; c.beginPath(); c.arc(mq[0], mq[1], 8, 0, 7); c.fill();
-      c.fillStyle = 'rgba(255,255,255,.85)'; c.fillText('Moon', mq[0] + 13, mq[1] + 4);
+      c.fillStyle = 'rgba(255,255,255,.85)'; if (!Planner.isMoon(o.target)) c.fillText('Moon', mq[0] + 13, mq[1] + 4);
     }
 
     // Targets
     const hits = [];
     const mark = (t, main) => {
-      const p = Astro.precess(t.ra, t.dec, o.t), v = toV(p.ra, p.dec);
+      const p = Planner.position(t, o.t), v = Planner.isMoon(t) ? enu(sky.moonAz, sky.moonAlt) : toV(p.ra, p.dec);
       if (v[2] < -.02) return;
       const q = proj(v);
       if (!on(q)) return;
@@ -163,7 +163,7 @@ const Sky = (() => {
         const w = c.measureText(t.name).width, right = q[0] + 34 + w + 12 < W, tx = right ? q[0] + 34 : q[0] - 34 - w;
         c.fillStyle = 'rgba(4,8,14,.72)'; c.beginPath(); c.roundRect(tx - 7, q[1] - 13, w + 14, 26, 5); c.fill();
         c.fillStyle = '#fff'; c.fillText(t.name, tx, q[1] + 5);
-      } else {
+      } else if (!Planner.isMoon(t)) { // the Moon is already drawn
         c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1.3;
         c.strokeRect(q[0] - 4, q[1] - 4, 8, 8);
       }
@@ -192,7 +192,7 @@ const Sky = (() => {
       if (major && q[1] + 30 < H) { c.fillStyle = 'rgba(255,255,255,.92)'; c.font = `600 13px ${o.font}`; c.fillText(major, q[0], q[1] + 29); }
     }
     // Height guide: one tick per fist (10 degrees) above the horizon under the target
-    const tp = Astro.precess(o.target.ra, o.target.dec, o.t), ta = Astro.altAz(tp.ra, tp.dec, o.loc.lat, o.loc.lon, o.t);
+    const tp = Planner.position(o.target, o.t), ta = Planner.isMoon(o.target) ? { alt: sky.moonAlt, az: sky.moonAz } : Astro.altAz(tp.ra, tp.dec, o.loc.lat, o.loc.lon, o.t);
     if (ta.alt > 3) {
       c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.beginPath();
       let first = true;
@@ -232,11 +232,12 @@ const Sky = (() => {
       const label = `Best ${Zone.time(r.window.start, o.tz)} to ${Zone.time(r.window.end, o.tz)}`;
       out += `<text x="${clamp((a + b) / 2, L + 66, W - RR - 66)}" y="${T - 12}" class="winlabel" text-anchor="middle">${label}</text>`;
     }
-    out += `<path d="${path('moonAlt')}" class="moonline"/><path d="${path('alt')}" class="targetline"/>`;
+    const onMoon = Planner.isMoon(r.target);
+    out += `${onMoon ? '' : `<path d="${path('moonAlt')}" class="moonline"/>`}<path d="${path('alt')}" class="targetline"/>`;
     const pt = peak('alt'), pm = peak('moonAlt');
     const tl = [clamp(x(pt.t), L + 60, W - RR - 60), y(pt.alt) < T + 22 ? y(pt.alt) + 34 : y(pt.alt) - 8];
     if (pt.alt > 4) out += `<text x="${tl[0]}" y="${tl[1]}" class="onsky strong" text-anchor="middle">${esc(r.target.name)}</text>`;
-    if (pm.moonAlt > 8) {
+    if (pm.moonAlt > 8 && !onMoon) {
       const ml = [clamp(x(pm.t), L + 24, W - RR - 24), y(pm.moonAlt) < T + 22 ? y(pm.moonAlt) + 18 : y(pm.moonAlt) - 8];
       if (Math.abs(ml[0] - tl[0]) < 100 && Math.abs(ml[1] - tl[1]) < 18) ml[1] = Math.max(ml[1], tl[1]) + 20;
       out += `<text x="${ml[0]}" y="${ml[1]}" class="onsky moon" text-anchor="middle">Moon</text>`;

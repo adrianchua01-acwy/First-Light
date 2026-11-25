@@ -33,6 +33,17 @@ const Planner = (() => {
   const lightFactor = (kind, b) => LIGHT[kind][Astro.clamp(Math.round(b), 1, 9) - 1];
   const cloudFactor = c => c == null ? 1 : c <= 10 ? 1 : Math.max(0, 1 - Math.pow((c - 10) / 85, .9));
 
+  /* The Moon plays by its own rules: daylight only dims it, sky glow does not matter, and its phase does. */
+  const isMoon = target => target.type === 'Moon';
+  const moonShot = {
+    dark: sun => lerp(sun, [[-6, 1], [0, .75], [6, .42]]),
+    alt: alt => alt < 5 ? 0 : lerp(alt, [[5, .4], [15, .66], [30, .9], [45, 1]]),
+    phase: frac => lerp(frac, [[.005, 0], [.02, .25], [.08, .6], [.25, .92], [.45, 1], [.8, 1], [.93, .9], [1, .8]]),
+    cloud: c => c == null ? 1 : c <= 20 ? 1 : Math.max(0, 1 - Math.pow((c - 20) / 78, 1.2)),
+  };
+  /* Position for the date: precessed catalogue place, or the Moon's own. */
+  const position = (target, t) => isMoon(target) ? Astro.moon(t) : Astro.precess(target.ra, target.dec, t);
+
   /* Linear interpolation between hourly forecast values; null outside the forecast. */
   function cloudAt(weather, t) {
     if (!weather) return null;
@@ -77,6 +88,12 @@ const Planner = (() => {
   }
 
   function scoreSample(target, pos, sky, frac, ctx) {
+    if (isMoon(target)) {
+      const cloud = cloudAt(ctx.weather, sky.t);
+      const f = { dark: moonShot.dark(sky.sun), alt: moonShot.alt(sky.moonAlt), moon: moonShot.phase(frac), light: 1, cloud: moonShot.cloud(cloud) };
+      return { t: sky.t, alt: sky.moonAlt, az: sky.moonAz, sun: sky.sun, moonAlt: sky.moonAlt, cloud, f,
+        score: 100 * f.dark * f.alt * f.moon * f.cloud };
+    }
     const p = Astro.altAz(pos.ra, pos.dec, ctx.loc.lat, ctx.loc.lon, sky.t);
     const cloud = cloudAt(ctx.weather, sky.t);
     const f = {
@@ -89,12 +106,12 @@ const Planner = (() => {
   }
 
   function scoreAt(target, t, ctx) {
-    return scoreSample(target, Astro.precess(target.ra, target.dec, t), skyAt(t, ctx.loc), Astro.moonPhase(t).frac, ctx);
+    return scoreSample(target, position(target, t), skyAt(t, ctx.loc), Astro.moonPhase(t).frac, ctx);
   }
 
   /* Whole-night result: best hour, usable window, and grade. */
   function evaluate(target, date, ctx) {
-    const n = night(date, ctx.loc), pos = Astro.precess(target.ra, target.dec, n.t0);
+    const n = night(date, ctx.loc), pos = position(target, n.t0);
     const s = n.s.map(x => scoreSample(target, pos, x, n.moon.frac, ctx));
     let best = 0, bi = -1;
     for (let i = 3; i < s.length - 3; i++) {
@@ -125,6 +142,14 @@ const Planner = (() => {
   /* Why a night cannot work, in one sentence. */
   function blocker(r, ctx) {
     const { target: t, night: n } = r;
+    if (isMoon(t)) {
+      if (n.moon.frac < .02) return 'It is new Moon: the lit side faces away and it sits beside the Sun.';
+      if (r.maxAlt < t.minAlt) return `The Moon stays too low to photograph from ${ctx.loc.name} that night.`;
+      const high = r.s.filter(x => x.f.alt > 0);
+      if (Math.max(...high.map(x => x.f.cloud)) < .35) return 'The forecast shows heavy cloud while it is up.';
+      if (n.moon.frac < .08) return 'It is a very thin crescent, low and close to the Sun.';
+      return 'It is only up in bright daylight, low down, or behind cloud that night.';
+    }
     if (r.maxAlt < t.minAlt) return r.maxAlt < 0
       ? `${t.name} never rises above the horizon from ${ctx.loc.name}.`
       : `${t.name} only climbs to ${Math.round(r.maxAlt)}° here, too low in the haze for a clean photo.`;
@@ -161,5 +186,5 @@ const Planner = (() => {
     return out;
   }
 
-  return { STEP, DARK_SITES, night, skyAt, scoreAt, evaluate, grade, blocker, nightOf, season, cloudAt };
+  return { STEP, DARK_SITES, isMoon, position, night, skyAt, scoreAt, evaluate, grade, blocker, nightOf, season, cloudAt };
 })();

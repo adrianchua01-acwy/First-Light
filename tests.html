@@ -40,13 +40,29 @@ ok('Carina excellent from Sydney in March', E('ngc3372', '2026-03-18', 'Sydney')
 const w = { t0: U(2026, 6, 13), cloud: Array(72).fill(100) };
 ok('overcast gives zero', Planner.evaluate(T('mw-core'), '2026-07-13', { ...C('Atacama Desert', 1), weather: w }).score === 0);
 ok('daytime scores zero', Planner.scoreAt(T('mw-core'), U(2026, 6, 13, 16), C('Atacama Desert', 1)).score === 0);
+// The Moon as a target
+const phase = (n, a, from, want) => near(n + ' (minutes off)', (Astro.nextPhase(a, from) - want) / 60000, 0, 15);
+phase('full Moon 2026-11-24', 180, U(2026, 10, 12), U(2026, 10, 24, 14, 53)); phase('new Moon 2026-12-09', 0, U(2026, 10, 25), U(2026, 11, 9, 0, 52));
+phase('full Moon 2026-12-24', 180, U(2026, 10, 25), U(2026, 11, 24, 1, 28)); phase('eclipse new Moon 2026-08-12', 0, U(2026, 7, 1), U(2026, 7, 12, 17, 37));
+phase('eclipse full Moon 2026-03-03', 180, U(2026, 1, 20), U(2026, 2, 3, 11, 38));
+for (let i = 0; i < 60; i++) { const from = U(2026, 0, 1) + i * 6.3 * 864e5; for (const a of [0, 90, 180, 270]) { const t = Astro.nextPhase(a, from), err = Math.abs(((Astro.moonPhase(t).phase - a + 540) % 360) - 180); if (!(t >= from && t < from + 30.5 * 864e5 && err < .01)) ok('next phase ' + a + ' from ' + new Date(from).toISOString(), false); } }
+ok('every next phase falls within 30.5 days', true);
+ok('Moon size stays in its real range', [...Array(400)].every((_, i) => { const x = Astro.moonSize(U(2026, 0, 1) + i * 864e5); return x > 29.2 && x < 34.3; }));
+const q1 = E('moon', '2026-12-17', 'London', 8);
+ok('first quarter is excellent from a city', q1.score >= 70, String(q1.score));
+ok('city and dark site give the Moon the same score', q1.score === E('moon', '2026-12-17', 'London', 1).score);
+ok('new Moon cannot be photographed', E('moon', '2026-12-08', 'London').score < 8 && /new Moon/.test(Planner.blocker(E('moon', '2026-12-08', 'London'), C('London'))));
+ok('Moon window follows its real height', Math.abs(q1.window.peak.alt - Astro.moonAltAz(51.51, -.13, q1.window.peak.t).alt) < 1e-9);
+ok('Moon can be shot in daylight, at a lower score', (() => { const r = E('moon', '2026-12-17', 'London').s.filter(x => x.sun > 6 && x.alt > 10); return r.length > 0 && r.every(x => x.score > 0 && x.score < 50); })());
+ok('overcast hides the Moon', Planner.evaluate(T('moon'), '2026-12-17', { ...C('London'), weather: { t0: U(2026, 11, 17), cloud: Array(72).fill(100) } }).score === 0);
+ok('full Moon still hurts nebulae but not itself', E('moon', '2026-12-23', 'London').score > 60 && E('california', '2026-12-23', 'London').score < 40);
 let sweep = 0;
 for (const p of PLACES) {
   ok('zone valid: ' + p.name, Zone.valid(p.tz));
   for (const d of ['2026-03-20', '2026-06-21', '2026-11-25']) for (const t of TARGETS) {
     const r = Planner.evaluate(t, d, { loc: p, bortle: 4, weather: null }); sweep++;
     if (!(r.score >= 0 && r.score <= 100)) ok('score in range ' + p.name + t.id, false);
-    if (r.window && (r.window.peak.sun > -10 || r.window.peak.alt < t.minAlt)) ok('window is dark and high ' + p.name + ' ' + t.id, false);
+    if (r.window && ((t.id !== 'moon' && r.window.peak.sun > -10) || r.window.peak.alt < t.minAlt)) ok('window is dark and high ' + p.name + ' ' + t.id, false);
   }
 }
 ok('swept ' + sweep + ' place/date/target combinations', true);

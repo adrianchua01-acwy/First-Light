@@ -1,6 +1,6 @@
 # First Light
 
-Tells a beginner when, where and how to photograph nebulae and the Milky Way, from anywhere in the world.
+Tells a beginner when, where and how to photograph the Milky Way, nebulae and the Moon, from anywhere in the world.
 
 Open `index.html` in a browser. There is nothing to install and no account or key.
 "Use my location" may need the app to be served rather than opened as a file:
@@ -21,5 +21,6 @@ then visit http://localhost:8765.
 Place search and cloud forecasts (about 16 days) come from open-meteo.com. Without internet, everything except
 cloud and online search still works. Settings and saved plans stay in the browser.
 
-The score multiplies five factors: darkness, height, moonlight, sky glow and cloud. The weights are rule-of-thumb
+The score multiplies five factors: darkness, height, moonlight, sky glow and cloud. The Moon has its own rules:
+its phase counts, sky glow does not, and twilight or daylight only lowers the score. The weights are rule-of-thumb
 estimates, not measurements, and are all near the top of `planner.js`.
